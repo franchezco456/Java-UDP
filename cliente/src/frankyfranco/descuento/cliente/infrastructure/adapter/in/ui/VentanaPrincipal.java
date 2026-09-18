@@ -1,14 +1,9 @@
-package frankyfranco.descuento.cliente.vistas;
+package frankyfranco.descuento.cliente.infrastructure.adapter.in.ui;
 
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.nio.ByteBuffer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.swing.BorderFactory;
@@ -24,16 +19,19 @@ import javax.swing.LayoutStyle;
 import javax.swing.SwingConstants;
 import javax.swing.UIManager;
 import javax.swing.WindowConstants;
+import frankyfranco.descuento.cliente.application.port.in.SolicitarDescuentoUseCase;
+import frankyfranco.descuento.cliente.application.usecase.SolicitarDescuentoUseCaseImpl;
+import frankyfranco.descuento.cliente.domain.model.RespuestaDescuento;
+import frankyfranco.descuento.cliente.domain.model.SolicitudDescuento;
+import frankyfranco.descuento.cliente.infrastructure.adapter.out.udp.ClienteUdpAdapter;
 
 /**
- * @author FRANKY FRANCO
+ * Adaptador Primario (Driving Adapter) de Interfaz Gráfica para el Cliente.
+ * Se comunica exclusivamente a través del puerto de entrada SolicitarDescuentoUseCase.
  */
 public class VentanaPrincipal extends JFrame {
 
-    private DatagramSocket socketUdp;
-    private InetAddress direccionServidor;
-    private int puertoServidor;
-    private boolean conectado = false;
+    private final SolicitarDescuentoUseCase casoDeUso;
 
     // Variables declaration
     private JButton btnIniciar;
@@ -57,6 +55,14 @@ public class VentanaPrincipal extends JFrame {
     private JLabel txtResultado;
 
     public VentanaPrincipal() {
+        // Ensamble hexagonal de dependencias del cliente
+        ClienteUdpAdapter udpAdapter = new ClienteUdpAdapter();
+        this.casoDeUso = new SolicitarDescuentoUseCaseImpl(udpAdapter);
+        initComponents();
+    }
+
+    public VentanaPrincipal(SolicitarDescuentoUseCase casoDeUso) {
+        this.casoDeUso = casoDeUso;
         initComponents();
     }
 
@@ -83,7 +89,7 @@ public class VentanaPrincipal extends JFrame {
         txtMensaje = new JLabel();
 
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setTitle("Cliente Descuento de Compras");
+        setTitle("Cliente Descuento de Compras - Arquitectura Hexagonal");
 
         jLabel1.setFont(new Font("Tahoma", Font.PLAIN, 24));
         jLabel1.setHorizontalAlignment(SwingConstants.CENTER);
@@ -170,7 +176,7 @@ public class VentanaPrincipal extends JFrame {
 
         txtResultado.setFont(new Font("Tahoma", Font.BOLD, 12));
         txtResultado.setForeground(new Color(255, 0, 51));
-        txtResultado.setText("$0.00");
+        txtResultado.setText(".00");
 
         txtMensaje.setBorder(BorderFactory.createTitledBorder(""));
 
@@ -270,25 +276,16 @@ public class VentanaPrincipal extends JFrame {
 
         if (btnIniciar.getText().equalsIgnoreCase("Conectar")) {
             try {
-                direccionServidor = InetAddress.getByName(rawIp);
-                puertoServidor = puerto;
-                socketUdp = new DatagramSocket();
-                socketUdp.setSoTimeout(5000);
-                conectado = true;
+                casoDeUso.conectar(rawIp, puerto);
                 btnIniciar.setText("Desconectar");
                 btnIniciar.setForeground(Color.RED);
                 txtEstado.setText("Conectado");
                 txtEstado.setForeground(Color.GREEN);
-            } catch (IOException ex) {
-                System.out.println("ERROR AL CONECTAR");
-                ex.printStackTrace();
+            } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "ERROR AL CONECTAR: " + ex.getMessage());
             }
         } else if (btnIniciar.getText().equalsIgnoreCase("Desconectar")) {
-            if (socketUdp != null && !socketUdp.isClosed()) {
-                socketUdp.close();
-            }
-            conectado = false;
+            casoDeUso.desconectar();
             btnIniciar.setText("Conectar");
             txtEstado.setText("Desconectado");
             btnIniciar.setForeground(Color.GREEN);
@@ -297,60 +294,28 @@ public class VentanaPrincipal extends JFrame {
     }
 
     private void btnIniciar1ActionPerformed(ActionEvent evt) {
-        if (!conectado || socketUdp == null || socketUdp.isClosed()) {
+        if (!casoDeUso.estaConectado()) {
             JOptionPane.showMessageDialog(this, "Cliente Offline, Conecte con el Servidor");
             return;
         }
         try {
             float precioOriginal = Float.parseFloat(campoPeso.getText().trim());
             float porcentajeDescuento = Float.parseFloat(campoAltura.getText().trim());
-            Thread hilo = new Thread() {
-                @Override
-                public void run() {
-                    try {
-                        System.out.println("Precio Original: $" + precioOriginal);
-                        System.out.println("Porcentaje Descuento: " + porcentajeDescuento + "%");
+            SolicitudDescuento solicitud = new SolicitudDescuento(precioOriginal, porcentajeDescuento);
 
-                        ByteBuffer bbEnvio = ByteBuffer.allocate(8);
-                        bbEnvio.putFloat(precioOriginal);
-                        bbEnvio.putFloat(porcentajeDescuento);
-                        byte[] datosEnvio = bbEnvio.array();
-
-                        DatagramPacket paqueteEnvio = new DatagramPacket(
-                                datosEnvio, datosEnvio.length, direccionServidor, puertoServidor);
-                        socketUdp.send(paqueteEnvio);
-                        System.out.println("Datos enviados. Esperando respuesta...");
-
-                        byte[] bufferRespuesta = new byte[8];
-                        DatagramPacket paqueteRespuesta = new DatagramPacket(bufferRespuesta, bufferRespuesta.length);
-                        socketUdp.receive(paqueteRespuesta);
-
-                        ByteBuffer bbRespuesta = ByteBuffer.wrap(paqueteRespuesta.getData());
-                        float montoDescuento = bbRespuesta.getFloat();
-                        float precioFinal = bbRespuesta.getFloat();
-
-                        System.out.println("Monto Descuento: $" + montoDescuento + "\nPrecio Final: $" + precioFinal);
-                        txtResultado.setText(String.format("$%.2f", montoDescuento));
-                        txtMensaje.setText(String.format("Precio Final: $%.2f", precioFinal));
-                    } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(VentanaPrincipal.this, "ERROR con el cliente " + ex.getMessage());
-                        System.out.println("ERROR con el cliente " + ex.getMessage());
-                        ex.printStackTrace();
-                    }
+            new Thread(() -> {
+                try {
+                    RespuestaDescuento respuesta = casoDeUso.procesar(solicitud);
+                    txtResultado.setText(String.format("$%.2f", respuesta.getMontoDescuento()));
+                    txtMensaje.setText(String.format("Precio Final: $%.2f", respuesta.getPrecioFinal()));
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(VentanaPrincipal.this, "ERROR con el cliente: " + ex.getMessage());
                 }
-            };
-            hilo.start();
+            }).start();
+
         } catch (NumberFormatException nfe) {
             JOptionPane.showMessageDialog(this, "Por favor ingrese valores numericos validos para el precio original y el porcentaje de descuento.");
         }
-    }
-
-    public JLabel getTxtEstado() {
-        return txtEstado;
-    }
-
-    public JButton getBtnIniciar() {
-        return btnIniciar;
     }
 
     public static void main(String args[]) {
@@ -365,11 +330,8 @@ public class VentanaPrincipal extends JFrame {
             Logger.getLogger(VentanaPrincipal.class.getName()).log(Level.SEVERE, null, ex);
         }
 
-        java.awt.EventQueue.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                new VentanaPrincipal().setVisible(true);
-            }
+        java.awt.EventQueue.invokeLater(() -> {
+            new VentanaPrincipal().setVisible(true);
         });
     }
 }

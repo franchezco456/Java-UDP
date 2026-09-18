@@ -1,15 +1,12 @@
 package frankyfranco.descuento.cliente;
 
-import frankyfranco.descuento.cliente.vistas.VentanaPrincipal;
+import frankyfranco.descuento.cliente.infrastructure.adapter.in.ui.VentanaPrincipal;
 
 /**
- * @author FRANKY FRANCO
+ * Punto de entrada (Bootstrap) del Cliente.
  */
 public class Principal {
 
-    /**
-     * @param args the command line arguments
-     */
     public static void main(String[] args) {
         VentanaPrincipal v = new VentanaPrincipal();
         v.setLocationRelativeTo(null);

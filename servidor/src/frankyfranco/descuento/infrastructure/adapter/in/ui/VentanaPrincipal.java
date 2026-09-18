@@ -1,4 +1,4 @@
-package frankyfranco.descuento.vistas;
+package frankyfranco.descuento.infrastructure.adapter.in.ui;
 
 import java.awt.Color;
 import java.awt.Font;
@@ -24,14 +24,20 @@ import javax.swing.LayoutStyle;
 import javax.swing.SwingConstants;
 import javax.swing.UIManager;
 import javax.swing.WindowConstants;
-import frankyfranco.descuento.servidor.ServidorUdp;
+import frankyfranco.descuento.application.port.in.CalcularDescuentoUseCase;
+import frankyfranco.descuento.application.port.in.ControlServidorUseCase;
+import frankyfranco.descuento.application.usecase.CalcularDescuentoUseCaseImpl;
+import frankyfranco.descuento.domain.service.CalculoDescuentoService;
+import frankyfranco.descuento.infrastructure.adapter.in.udp.ServidorUdpAdapter;
+import frankyfranco.descuento.infrastructure.adapter.out.logging.SwingLogAdapter;
 
 /**
- * @author FRANKY FRANCO
+ * Adaptador Primario (Driving Adapter) de Interfaz Gráfica para el Servidor.
+ * No contiene lógica de negocio ni sockets directamente; delega en ControlServidorUseCase.
  */
 public class VentanaPrincipal extends JFrame {
 
-    private ServidorUdp s;
+    private ControlServidorUseCase controlServidor;
 
     // Variables declaration
     private JButton btnIniciar;
@@ -53,6 +59,14 @@ public class VentanaPrincipal extends JFrame {
         initComponents();
     }
 
+    public void inicializarServidor() {
+        // Ensamble hexagonal: adaptadores <-> puertos <-> casos de uso
+        SwingLogAdapter logAdapter = new SwingLogAdapter(cajaLog);
+        CalculoDescuentoService domainService = new CalculoDescuentoService();
+        CalcularDescuentoUseCase calcularUseCase = new CalcularDescuentoUseCaseImpl(domainService, logAdapter);
+        this.controlServidor = new ServidorUdpAdapter(calcularUseCase, logAdapter);
+    }
+
     @SuppressWarnings("unchecked")
     private void initComponents() {
         jLabel1 = new JLabel();
@@ -71,7 +85,7 @@ public class VentanaPrincipal extends JFrame {
         btnLimpiar = new JButton();
 
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setTitle("Servidor Descuento de Compras");
+        setTitle("Servidor Descuento de Compras - Arquitectura Hexagonal");
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowOpened(WindowEvent evt) {
@@ -211,15 +225,23 @@ public class VentanaPrincipal extends JFrame {
 
     private void btnIniciarActionPerformed(ActionEvent evt) {
         if (btnIniciar.getText().equalsIgnoreCase("INICIAR")) {
-            int puerto = Integer.parseInt(campoPuerto.getText());
-            s = new ServidorUdp(puerto, this);
-            s.start();
-            btnIniciar.setText("DETENER");
-            txtEstado.setText("ONLINE");
-            txtEstado.setForeground(Color.GREEN);
+            try {
+                int puerto = Integer.parseInt(campoPuerto.getText().trim());
+                inicializarServidor();
+                controlServidor.iniciar(puerto);
+                btnIniciar.setText("DETENER");
+                btnIniciar.setForeground(Color.RED);
+                txtEstado.setText("ONLINE");
+                txtEstado.setForeground(Color.GREEN);
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "Error al iniciar servidor: " + ex.getMessage());
+            }
         } else if (btnIniciar.getText().equalsIgnoreCase("DETENER")) {
-            s.detenerServicio();
+            if (controlServidor != null) {
+                controlServidor.detener();
+            }
             btnIniciar.setText("INICIAR");
+            btnIniciar.setForeground(new Color(0, 153, 51));
             txtEstado.setText("OFF LINE");
             txtEstado.setForeground(Color.RED);
         }
@@ -230,26 +252,13 @@ public class VentanaPrincipal extends JFrame {
     }
 
     private void formWindowOpened(WindowEvent evt) {
-        String ip;
         try {
             campoIP.setEditable(false);
-            ip = InetAddress.getLocalHost().getHostAddress();
+            String ip = InetAddress.getLocalHost().getHostAddress();
             campoIP.setText(ip);
         } catch (UnknownHostException ex) {
             JOptionPane.showMessageDialog(this, "Falla en la conexion");
         }
-    }
-
-    public JLabel getTxtEstado() {
-        return txtEstado;
-    }
-
-    public JTextArea getCajaLog() {
-        return cajaLog;
-    }
-
-    public JButton getBtnIniciar() {
-        return btnIniciar;
     }
 
     public static void main(String args[]) {
@@ -264,11 +273,8 @@ public class VentanaPrincipal extends JFrame {
             Logger.getLogger(VentanaPrincipal.class.getName()).log(Level.SEVERE, null, ex);
         }
 
-        java.awt.EventQueue.invokeLater(new Runnable() {
-            @Override
-            public void run() {
-                new VentanaPrincipal().setVisible(true);
-            }
+        java.awt.EventQueue.invokeLater(() -> {
+            new VentanaPrincipal().setVisible(true);
         });
     }
 }
